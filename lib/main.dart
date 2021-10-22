@@ -8,10 +8,17 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:http/http.dart' as http;
+import 'package:push_image_notification/models/notification.dart';
+import 'package:push_image_notification/notification_details.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
   runApp(const MyApp());
 }
 
@@ -66,32 +73,63 @@ class _MyHomePageState extends State<MyHomePage> {
     getMessaging();
 
     FirebaseMessaging.onMessage.listen((event) async {
-      var pictureFile = await _downloadSaveFile(
-          event.notification!.android!.imageUrl!, 'image.jpg');
+      AndroidNotificationDetails? androidPlatformChannelSpecifics;
+      if (event.notification!.android!.imageUrl == null) {
+        androidPlatformChannelSpecifics = const AndroidNotificationDetails(
+          'your channel id',
+          'channel name',
+          importance: Importance.max,
+          priority: Priority.high,
+        );
+      } else {
+        var pictureFile = await _downloadSaveFile(
+            event.notification!.android!.imageUrl!, 'image.jpg');
 
-      final picture = BigPictureStyleInformation(
-        FilePathAndroidBitmap(pictureFile),
-        contentTitle: event.notification!.title!,
-        summaryText: event.notification!.body!,
-        htmlFormatContent: true,
-        htmlFormatContentTitle: true,
-      );
+        final picture = BigPictureStyleInformation(
+          FilePathAndroidBitmap(pictureFile),
+          contentTitle: event.notification!.title!,
+          summaryText: event.notification!.body!,
+          htmlFormatContent: true,
+          htmlFormatContentTitle: true,
+        );
 
-      AndroidNotificationDetails androidPlatformChannelSpecifics =
-          AndroidNotificationDetails('your channel id', 'channel name',
-              importance: Importance.max,
-              priority: Priority.high,
-              styleInformation: picture);
+        androidPlatformChannelSpecifics = AndroidNotificationDetails(
+            'your channel id', 'channel name',
+            importance: Importance.max,
+            priority: Priority.high,
+            styleInformation: picture);
+      }
+
       NotificationDetails platformChannelSpecifics =
           NotificationDetails(android: androidPlatformChannelSpecifics);
+      final notification = NotificationModel(
+        event.notification!.title!,
+        event.notification!.body!,
+        imageUrl: event.notification!.android!.imageUrl,
+      );
+      String notificationJsonString = notification.toJsonString();
       await flutterLocalNotificationsPlugin.show(
         Random().nextInt(120000),
         event.notification!.title!,
         event.notification!.body!,
         // event.notification!
         platformChannelSpecifics,
-        payload: 'item x',
+        payload: notificationJsonString,
       );
+    });
+
+    FirebaseMessaging.onMessageOpenedApp.listen((event) {
+      String? imgUrl;
+      try {
+        imgUrl = event.notification!.android!.imageUrl;
+      } catch (ex) {}
+      final notification = NotificationModel(
+        event.notification!.title!,
+        event.notification!.body!,
+        imageUrl: imgUrl,
+      );
+      Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => NotificationDetailsScreen(notification)));
     });
   }
 
@@ -121,7 +159,12 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  selectNotification(payload) {}
+  selectNotification(payload) {
+    NotificationModel notificationModel =
+        NotificationModel.fromJsonString(payload);
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => NotificationDetailsScreen(notificationModel)));
+  }
 
   @override
   Widget build(BuildContext context) {
